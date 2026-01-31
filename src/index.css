@@ -1,0 +1,529 @@
+/* src/index.css */
+@import "tailwindcss";
+
+/* =========================
+   ToneShift Theme (dark + pastel red)
+   ========================= */
+:root{
+  --bg:#07070b;
+  --panel:rgba(255,255,255,.06);
+  --panel2:rgba(255,255,255,.04);
+  --line:rgba(255,255,255,.10);
+
+  --text:#f4f5f8;
+  --muted:rgba(244,245,248,.65);
+
+  --accent:#ff4d6d;       /* pastel red */
+  --accent2:#ff7a90;
+  --glow:rgba(255,77,109,.35);
+
+  --radius:18px;
+  --shadow: 0 10px 30px rgba(0,0,0,.45);
+  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial, "Apple SD Gothic Neo","Malgun Gothic", sans-serif;
+}
+
+*{ box-sizing:border-box; }
+html,body,#root{ height:100%; }
+
+body{
+  margin:0;
+  font-family:var(--font);
+  color:var(--text);
+  background:
+    radial-gradient(900px 500px at 20% 0%, rgba(255,77,109,.14), transparent 60%),
+    radial-gradient(800px 420px at 90% 20%, rgba(255,122,144,.10), transparent 55%),
+    radial-gradient(700px 500px at 50% 120%, rgba(255,77,109,.10), transparent 60%),
+    var(--bg);
+}
+
+::selection{ background: rgba(255,77,109,.25); }
+
+/* =========================
+   Cards / Containers
+   ========================= */
+.ts-card{
+  background: linear-gradient(180deg, var(--panel), var(--panel2));
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.ts-cardHero{
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) padding-box,
+    linear-gradient(135deg, rgba(255,77,109,.45), rgba(255,255,255,.12), rgba(255,122,144,.35)) border-box;
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 18px 60px rgba(0,0,0,.55);
+  backdrop-filter: blur(14px);
+}
+
+.ts-divider{
+  height:1px;
+  background: rgba(255,255,255,.08);
+  margin: 12px 0;
+}
+
+/* =========================
+   Pills / Badges
+   ========================= */
+.ts-pill{
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ts-pillStrong{
+  border-color: rgba(255,77,109,.35);
+  color: rgba(244,245,248,.9);
+  background: rgba(255,77,109,.10);
+}
+
+.ts-kbd{
+  font-size:12px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  color: var(--muted);
+}
+
+.ts-dot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display:inline-block;
+  background: rgba(255,255,255,.35);
+  box-shadow: 0 0 0 3px rgba(255,255,255,.06);
+}
+.ts-dotOk{ background: rgba(140,255,198,.85); box-shadow: 0 0 0 3px rgba(140,255,198,.12); }
+.ts-dotLoad{ background: rgba(255,122,144,.9); box-shadow: 0 0 0 3px rgba(255,77,109,.18); }
+.ts-dotErr{ background: rgba(255,77,109,.95); box-shadow: 0 0 0 3px rgba(255,77,109,.18); }
+
+/* =========================
+   Inputs / Buttons
+   ========================= */
+.ts-input{
+  width:100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  padding: 12px 12px;
+  outline: none;
+}
+.ts-input:focus{
+  border-color: rgba(255,77,109,.55);
+  box-shadow: 0 0 0 3px rgba(255,77,109,.18);
+}
+
+.ts-textarea{
+  min-height: 140px;
+  resize: vertical;
+}
+
+.ts-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  border-radius: 14px;
+  padding: 11px 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform .06s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease, opacity .15s ease;
+  user-select:none;
+}
+.ts-btn:hover{
+  background: rgba(255,255,255,.07);
+  border-color: rgba(255,255,255,.18);
+}
+.ts-btn:active{ transform: translateY(1px); }
+.ts-btn:disabled{
+  opacity:.55;
+  cursor:not-allowed;
+}
+
+.ts-btn-accent{
+  border-color: rgba(255,77,109,.55);
+  background: linear-gradient(180deg, rgba(255,77,109,.24), rgba(255,77,109,.12));
+}
+.ts-btn-accent:hover{
+  box-shadow: 0 0 0 3px rgba(255,77,109,.14);
+  background: linear-gradient(180deg, rgba(255,77,109,.30), rgba(255,77,109,.14));
+}
+
+.ts-btn-ghost{
+  background: rgba(255,255,255,.03);
+}
+
+.ts-spinner{
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(244,245,248,.25);
+  border-top-color: rgba(255,122,144,.95);
+  animation: tsSpin .8s linear infinite;
+}
+@keyframes tsSpin{ to { transform: rotate(360deg); } }
+
+/* =========================
+   Section Headings
+   ========================= */
+.ts-h{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+.ts-hTitle{
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ts-hSub{
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* =========================
+   Switch (toggle)
+   ========================= */
+.ts-switch{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  cursor:pointer;
+  user-select:none;
+}
+.ts-switch input{ display:none; }
+.ts-switchTrack{
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.05);
+  position: relative;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.ts-switchThumb{
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  background: rgba(244,245,248,.85);
+  box-shadow: 0 6px 14px rgba(0,0,0,.35);
+  transition: transform .16s ease, background .15s ease;
+}
+.ts-switch input:checked + .ts-switchTrack{
+  background: rgba(255,77,109,.18);
+  border-color: rgba(255,77,109,.35);
+  box-shadow: 0 0 0 3px rgba(255,77,109,.12);
+}
+.ts-switch input:checked + .ts-switchTrack .ts-switchThumb{
+  transform: translateX(18px);
+  background: rgba(255,122,144,.95);
+}
+.ts-switchText{
+  font-size: 12px;
+  color: rgba(244,245,248,.85);
+}
+
+/* =========================
+   Range (slider)
+   ========================= */
+.ts-rangeWrap{
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+}
+.ts-rangeTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.ts-rangeLabel{
+  font-size: 12px;
+  color: rgba(244,245,248,.9);
+}
+.ts-rangeValue{
+  font-variant-numeric: tabular-nums;
+}
+.ts-range{
+  width:100%;
+  margin-top: 10px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  outline: none;
+}
+.ts-range::-webkit-slider-thumb{
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255,122,144,.95);
+  border: 1px solid rgba(255,77,109,.35);
+  box-shadow: 0 10px 22px rgba(0,0,0,.45), 0 0 0 3px rgba(255,77,109,.12);
+  cursor: pointer;
+}
+.ts-range::-moz-range-thumb{
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255,122,144,.95);
+  border: 1px solid rgba(255,77,109,.35);
+  box-shadow: 0 10px 22px rgba(0,0,0,.45), 0 0 0 3px rgba(255,77,109,.12);
+  cursor: pointer;
+}
+.ts-range::-moz-range-track{
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+}
+
+/* =========================
+   Audio block
+   ========================= */
+.ts-audioBox{
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.22);
+  padding: 12px;
+}
+.ts-audioTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom: 8px;
+}
+.ts-audioTitle{
+  font-size: 12px;
+  color: rgba(244,245,248,.85);
+}
+
+/* =========================
+   Custom Dropdown (Voice Picker)
+   ========================= */
+.ts-selectTrigger{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding: 10px 12px;
+}
+
+.ts-selectLabel{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+
+.ts-selectTitle{
+  font-size: 13px;
+  color: rgba(244,245,248,.92);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-selectSub{
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-chevron{
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  opacity: .85;
+  color: rgba(244,245,248,.9);
+  transform-origin: center;
+  transition: transform .12s ease;
+}
+.ts-chevronOpen{ transform: rotate(180deg); }
+
+.ts-menu{
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.55);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+
+.ts-menuHeader{
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.ts-menuTitle{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ts-menuList{
+  max-height: 260px;
+  overflow:auto;
+}
+
+.ts-menuItem{
+  width:100%;
+  text-align:left;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  color: rgba(244,245,248,.92);
+  cursor: pointer;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+.ts-menuItem:hover{
+  background: rgba(255,255,255,.06);
+}
+.ts-menuItem:focus{
+  outline: none;
+  background: rgba(255,77,109,.10);
+}
+.ts-menuItemActive{
+  background: rgba(255,77,109,.12);
+  border-left: 2px solid rgba(255,77,109,.75);
+}
+
+.ts-menuItemName{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.ts-menuItemMain{
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts-menuItemMeta{
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-check{
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: rgba(255,122,144,.95);
+  opacity: .95;
+  margin-top: 2px;
+}
+
+/* =========================
+   NEW: Tabs + Voice Design preview cards
+   ========================= */
+.ts-tabs{
+  display:inline-flex;
+  gap:8px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+}
+
+.ts-tab{
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: rgba(244,245,248,.85);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease;
+}
+.ts-tab:hover{
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.16);
+}
+.ts-tab:active{ transform: translateY(1px); }
+
+.ts-tabActive{
+  border-color: rgba(255,77,109,.45);
+  background: rgba(255,77,109,.14);
+  color: rgba(244,245,248,.92);
+  box-shadow: 0 0 0 3px rgba(255,77,109,.10);
+}
+
+.ts-row2{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ts-previewCard{
+  text-align:left;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.03);
+  cursor: pointer;
+  transition: transform .06s ease, border-color .15s ease, background .15s ease;
+}
+.ts-previewCard:hover{
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.16);
+}
+.ts-previewCard:active{ transform: translateY(1px); }
+
+.ts-previewCardActive{
+  border-color: rgba(255,77,109,.45);
+  box-shadow: 0 0 0 3px rgba(255,77,109,.10);
+  background: rgba(255,77,109,.08);
+}
+
+.ts-previewMeta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ts-previewId{
+  font-size: 12px;
+  color: rgba(244,245,248,.9);
+}
+.ts-previewSmall{
+  font-size: 11px;
+  color: var(--muted);
+}
