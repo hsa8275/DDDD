@@ -140,7 +140,7 @@ export function ScribeMicTranscriber(props: Props): ReactElement {
       <div className="ts-pill" style={{ opacity: 0.95 }}>
         <span aria-hidden="true">📝</span>
         <span className="ml-2" style={{ whiteSpace: "pre-wrap" }}>
-          {liveText ? liveText : "말하면 여기에 실시간으로 전사돼요"}
+          {liveText ? liveText : "음성 분석을 시작하세요..."}
         </span>
       </div>
 

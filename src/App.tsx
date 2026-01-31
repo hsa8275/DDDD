@@ -12,6 +12,8 @@ type View = "console" | "voiceDesign" | "voiceClone" | "product";
 
 const LS_PROFILE_KEY: string = "tonesift.listenProfile.v1";
 
+const DEFAULT_AGENT_TEXT: string = "기다리게 해서 정말 죄송합니다. 바로 확인하겠습니다.";
+
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
@@ -47,6 +49,7 @@ type TransformParsed = {
   emotion?: string;
   confidenceRaw?: string;
   confidenceValue?: number; // 0~100
+  recommendation?: string;
 };
 
 type EmotionCanon = "공포" | "놀람" | "분노" | "슬픔" | "중립" | "행복" | "혐오";
@@ -104,9 +107,7 @@ function parseTransformResponse(u: unknown): TransformParsed {
     readString(root.transformed, "").trim();
 
   const original_message: string | undefined =
-    readString(root.original_message, "").trim() ||
-    readString(root.originalMessage, "").trim() ||
-    undefined;
+    readString(root.original_message, "").trim() || readString(root.originalMessage, "").trim() || undefined;
 
   const emotion: string | undefined =
     typeof root.emotion === "string"
@@ -114,6 +115,12 @@ function parseTransformResponse(u: unknown): TransformParsed {
       : typeof root.sentiment === "string"
       ? root.sentiment.trim()
       : undefined;
+
+  const recommendation: string | undefined =
+    readString((root as Record<string, unknown>).recommendation, "").trim() ||
+    readString((root as Record<string, unknown>).recommended_message, "").trim() ||
+    readString((root as Record<string, unknown>).suggestion, "").trim() ||
+    undefined;
 
   const conf = parseConfidence(
     (root as Record<string, unknown>).confidence ?? (root as Record<string, unknown>).confidence_score
@@ -125,6 +132,7 @@ function parseTransformResponse(u: unknown): TransformParsed {
     emotion,
     confidenceRaw: conf.raw,
     confidenceValue: typeof conf.value === "number" ? conf.value : undefined,
+    recommendation,
   };
 }
 
@@ -140,11 +148,23 @@ async function getRandomSwear(signal: AbortSignal): Promise<string> {
   return swear.trim();
 }
 
+function getTransformApiUrl(): string {
+  const env: unknown = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const fromEnv: unknown = isRecord(env) ? env.VITE_AI_TRANSFORM_URL : undefined;
+
+  if (typeof fromEnv === "string" && fromEnv.trim()) return fromEnv.trim();
+
+  const isDev: boolean = !!(isRecord(env) && env.DEV);
+  if (isDev) return "http://34.64.208.249:80/ai/transform";
+
+  return "/api/ai/transform";
+}
+
 async function transformWithMeta(message: string, signal: AbortSignal): Promise<TransformParsed> {
-  const r: Response = await fetch("/api/ai/transform", {
+  const r: Response = await fetch(getTransformApiUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, original_message: message }),
+    body: JSON.stringify({ message }),
     signal,
   });
 
@@ -408,7 +428,7 @@ export default function App() {
     id: undefined,
   });
 
-  const [agentText, setAgentText] = useState<string>("기다리게 해서 정말 죄송합니다. 바로 확인하겠습니다.");
+  const [agentText, setAgentText] = useState<string>(DEFAULT_AGENT_TEXT);
 
   const [neutralAudio, setNeutralAudio] = useState<string>("");
   const [warmAudio, setWarmAudio] = useState<string>("");
@@ -462,6 +482,12 @@ export default function App() {
   const swearLoopRef = useRef<LoopState>({ isRunning: false, loopId: 0, abort: undefined });
 
   const productTheme: EmotionTheme = useMemo<EmotionTheme>(() => emotionTheme(neutralEmotion), [neutralEmotion]);
+
+  function applyRecommendation(rec?: string): void {
+    const t: string = String(rec ?? "").trim();
+    if (!t) return;
+    setAgentText(t);
+  }
 
   function customerKey(c: CustomerUtterance, overrideText?: string): string {
     const text: string = String(overrideText ?? c.text ?? "").trim();
@@ -573,11 +599,7 @@ export default function App() {
     return clamp(speed, 0.7, 1.2);
   }
 
-  async function generateNeutral(
-    source: "manual" | "auto",
-    overrideText?: string,
-    overrideKey?: string
-  ): Promise<void> {
+  async function generateNeutral(source: "manual" | "auto", overrideText?: string, overrideKey?: string): Promise<void> {
     const raw: string = String(overrideText ?? customer.text ?? "").trim();
     if (!neutralVoiceId || !raw) return;
 
@@ -606,6 +628,8 @@ export default function App() {
       setNeutralEmotion(parsed.emotion ?? "");
       setNeutralConfidenceRaw(parsed.confidenceRaw ?? "");
       setNeutralConfidenceValue(typeof parsed.confidenceValue === "number" ? parsed.confidenceValue : null);
+
+      applyRecommendation(parsed.recommendation);
 
       const { url } = await tts({
         text: clean,
@@ -746,6 +770,8 @@ export default function App() {
         setNeutralConfidenceRaw(parsed.confidenceRaw ?? "");
         setNeutralConfidenceValue(typeof parsed.confidenceValue === "number" ? parsed.confidenceValue : null);
 
+        applyRecommendation(parsed.recommendation);
+
         const { url } = await tts({
           text: clean,
           voiceId: neutralVoiceId,
@@ -856,10 +882,7 @@ export default function App() {
 
   const canStart: boolean = !swearLoopRef.current.isRunning && voiceLabStatus !== "loading" && !!neutralVoiceId;
   const canStop: boolean =
-    swearLoopRef.current.isRunning ||
-    isAutoRunning ||
-    neutralStatus === "loading" ||
-    warmStatus === "loading";
+    swearLoopRef.current.isRunning || isAutoRunning || neutralStatus === "loading" || warmStatus === "loading";
 
   return (
     <div className="min-h-screen">
@@ -879,7 +902,7 @@ export default function App() {
                 />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-base sm:text-lg font-semibold tracking-tight truncate">ToneShift</div>
+                    <div className="text-base sm:text-lg font-semibold tracking-tight truncate">뚝딱뚝딱</div>
 
                     <span className="ts-pill">
                       <span className={dotClass(status)} />
@@ -889,7 +912,7 @@ export default function App() {
                     {sttRecording ? (
                       <span className="ts-pill" title="STT listening">
                         <span aria-hidden="true">🎙️</span>
-                        <span className="hidden sm:inline ml-2">listening</span>
+                        <span className="hidden sm:inline ml-2">분석중..</span>
                       </span>
                     ) : null}
 
@@ -980,100 +1003,36 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid gap-2 sm:gap-3 sm:grid-cols-3">
-              <div className="sm:col-span-1">
-                <div className="mb-1 text-xs" style={{ color: "var(--muted)" }}>
-                  <span aria-hidden="true">🧊</span>
-                  <span className="hidden sm:inline ml-1">Neutral voice (고객/중화)</span>
-                </div>
-                <VoicePicker
-                  voices={voices}
-                  value={neutralVoiceId}
-                  onChange={setNeutralVoiceId}
-                  placeholder="Neutral Voice"
-                />
-              </div>
+            <div className="ts-divider" />
 
-              <div className="sm:col-span-1">
-                <div className="mb-1 text-xs" style={{ color: "var(--muted)" }}>
-                  <span aria-hidden="true">🫂</span>
-                  <span className="hidden sm:inline ml-1">Warm voice (상담사/공감)</span>
-                </div>
-                <VoicePicker
-                  voices={voices}
-                  value={warmVoiceId}
-                  onChange={setWarmVoiceId}
-                  placeholder="Warm Voice"
-                />
-              </div>
-
-              <div className="sm:col-span-1 flex items-end">
-                <div className="w-full">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      <span aria-hidden="true">🎯</span>
-                      <span className="hidden sm:inline ml-1">Confidence</span>
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      <span className="hidden sm:inline">{neutralConfidenceRaw || "-"}</span>
-                      <span className="sm:hidden">
-                        {typeof neutralConfidenceValue === "number" ? `${Math.round(confPct)}%` : "-"}
-                      </span>
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      height: 10,
-                      borderRadius: 999,
-                      border: "1px solid rgba(255,255,255,.10)",
-                      background: "rgba(255,255,255,.05)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${confPct}%`,
-                        height: "100%",
-                        background: "rgba(255,77,109,.55)",
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+            {/* ✅ Pace/Pitch 더 심플하게 */}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <MiniSlider
+                icon="⚡"
+                label="Pace"
+                value={listenPace}
+                min={0.85}
+                max={1.15}
+                step={0.01}
+                onChange={setListenPace}
+              />
+              <MiniSlider
+                icon="🎚️"
+                label="Pitch"
+                value={listenPitch}
+                min={0.85}
+                max={1.15}
+                step={0.01}
+                onChange={setListenPitch}
+              />
             </div>
 
-            <div className="ts-divider" />
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="md:col-span-1">
-                <div className="ts-pill inline-flex items-center gap-2">
-                  <span aria-hidden="true">🎧</span>
-                  <span className="hidden sm:inline">청취 프로필</span>
-                </div>
-
-                <div className="mt-2 text-xs hidden sm:block" style={{ color: "var(--muted)" }}>
-                  Pace=체감 속도, Pitch=체감 높낮이 (저장됨)
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="ts-pill" title="TTS speed">
-                    <span aria-hidden="true">⚡</span>
-                    <span className="hidden sm:inline ml-2">
-                      {ttsSpeedFor("neutral").toFixed(2)} / {ttsSpeedFor("warm").toFixed(2)}
-                    </span>
-                    <span className="sm:hidden ml-2">{ttsSpeedFor("neutral").toFixed(2)}</span>
-                  </span>
-
-                  <span className="ts-pill" title="playbackRate">
-                    <span aria-hidden="true">🎚️</span>
-                    <span className="hidden sm:inline ml-2">{clamp(listenPitch, 0.85, 1.15).toFixed(2)}</span>
-                    <span className="sm:hidden ml-2">{clamp(listenPitch, 0.85, 1.15).toFixed(2)}</span>
-                  </span>
-                </div>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs" style={{ color: "var(--muted)" }}>
+                TTS {ttsSpeedFor("neutral").toFixed(2)} / {ttsSpeedFor("warm").toFixed(2)}
               </div>
-
-              <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
-                <RangeRow label="Pace" value={listenPace} min={0.85} max={1.15} step={0.01} onChange={setListenPace} />
-                <RangeRow label="Pitch" value={listenPitch} min={0.85} max={1.15} step={0.01} onChange={setListenPitch} />
+              <div className="text-xs" style={{ color: "var(--muted)" }}>
+                Playback {clamp(listenPitch, 0.85, 1.15).toFixed(2)}
               </div>
             </div>
 
@@ -1187,19 +1146,55 @@ export default function App() {
                 )}
 
                 {neutralAudio ? <audio controls src={neutralAudio} className="w-full" /> : null}
+
+                <div className="grid gap-3 sm:grid-cols-2 items-end pt-1">
+                  <div className="min-w-0">
+                    <div className="mb-1 text-xs" style={{ color: "rgba(244,245,248,.70)" }}>
+                      <span aria-hidden="true">🧊</span>
+                      <span className="hidden sm:inline ml-1">Neutral voice</span>
+                    </div>
+                    <VoicePicker voices={voices} value={neutralVoiceId} onChange={setNeutralVoiceId} placeholder="Neutral Voice" />
+                  </div>
+
+                  <div className="sm:justify-end flex">
+                    <div className="w-full sm:w-auto">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs" style={{ color: "rgba(244,245,248,.70)" }}>
+                          <span aria-hidden="true">🎯</span>
+                          <span className="hidden sm:inline ml-1">Confidence</span>
+                        </span>
+                        <span className="text-xs" style={{ color: "rgba(244,245,248,.70)" }}>
+                          <span className="hidden sm:inline">{neutralConfidenceRaw || "-"}</span>
+                          <span className="sm:hidden">
+                            {typeof neutralConfidenceValue === "number" ? `${Math.round(confPct)}%` : "-"}
+                          </span>
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          height: 10,
+                          borderRadius: 999,
+                          border: "1px solid rgba(255,255,255,.10)",
+                          background: "rgba(255,255,255,.05)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div style={{ width: `${confPct}%`, height: "100%", background: "rgba(255,77,109,.55)" }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
         ) : (
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-            <section className="ts-card p-4 sm:p-5">
-              {/* 이하 콘솔 UI는 기존 그대로 */}
+          <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+            <section className="ts-card p-3 sm:p-4 min-w-0">
               <div className="ts-h">
-                <div>
+                <div className="min-w-0">
                   <div className="ts-hTitle">
-                    <span aria-hidden="true">😡</span> <span className="hidden sm:inline">고객 → 순화 → 중화</span>
+                    <span aria-hidden="true">😡</span> <span className="hidden sm:inline">고객님의목소리</span>
                   </div>
-                  <div className="ts-hSub hidden sm:block">STT or 입력 → Neutral Voice</div>
                 </div>
                 <span className="ts-pill" title={neutralEmotion ? `감정: ${neutralEmotion}` : "감정: -"}>
                   <span aria-hidden="true">😶</span>
@@ -1207,8 +1202,8 @@ export default function App() {
                 </span>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-3">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <ScribeMicTranscriber
                     disabled={!neutralVoiceId}
                     buttonClassName="ts-btn"
@@ -1261,9 +1256,10 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <textarea
                   className="ts-input ts-textarea"
+                  rows={4}
                   value={customer.text}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                     setCustomer((prev: CustomerUtterance) => ({ ...prev, text: e.target.value }))
@@ -1275,75 +1271,125 @@ export default function App() {
                 <div className="mt-3">
                   <div className="ts-pill inline-flex items-center gap-2" title="transformed_message">
                     <span aria-hidden="true">🫧</span>
-                    <span className="hidden sm:inline">transformed_message</span>
+                    <span className="hidden md:inline">transformed_message</span>
                   </div>
                   <div className="mt-2">
-                    <textarea className="ts-input ts-textarea" value={neutralTransformedText} readOnly />
+                    <textarea className="ts-input ts-textarea" rows={3} value={neutralTransformedText} readOnly />
                   </div>
                 </div>
               ) : null}
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <button
-                  className="ts-btn ts-btn-accent"
-                  onClick={() => void generateNeutral("manual")}
-                  disabled={neutralStatus === "loading" || !neutralVoiceId}
-                  aria-label="중화 생성"
-                  title="중화 생성"
-                >
-                  {neutralStatus === "loading" ? <span className="ts-spinner" /> : <span aria-hidden="true">🧊</span>}
-                  <span className="hidden sm:inline"> 중화 생성</span>
-                </button>
+              <div className="mt-3 grid gap-3">
+                <div className="grid gap-3 sm:grid-cols-2 items-end">
+                  <div className="min-w-0">
+                    <div className="mb-1 text-xs" style={{ color: "var(--muted)" }}>
+                      <span aria-hidden="true">🧊</span>
+                      <span className="hidden sm:inline ml-1">Neutral voice</span>
+                    </div>
+                    <VoicePicker voices={voices} value={neutralVoiceId} onChange={setNeutralVoiceId} placeholder="Neutral Voice" />
+                  </div>
+
+                  <div className="sm:justify-end flex">
+                    <div className="w-full sm:w-auto">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>
+                          <span aria-hidden="true">🎯</span>
+                          <span className="hidden md:inline ml-1">Confidence</span>
+                        </span>
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>
+                          <span className="hidden sm:inline">{neutralConfidenceRaw || "-"}</span>
+                          <span className="sm:hidden">
+                            {typeof neutralConfidenceValue === "number" ? `${Math.round(confPct)}%` : "-"}
+                          </span>
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          height: 10,
+                          borderRadius: 999,
+                          border: "1px solid rgba(255,255,255,.10)",
+                          background: "rgba(255,255,255,.05)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div style={{ width: `${confPct}%`, height: "100%", background: "rgba(255,77,109,.55)" }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    className="ts-btn ts-btn-accent"
+                    onClick={() => void generateNeutral("manual")}
+                    disabled={neutralStatus === "loading" || !neutralVoiceId}
+                    aria-label="중화 생성"
+                    title="중화 생성"
+                  >
+                    {neutralStatus === "loading" ? <span className="ts-spinner" /> : <span aria-hidden="true">🧊</span>}
+                    <span className="hidden sm:inline"> 중화 생성</span>
+                  </button>
+
+                  {neutralStatus === "loading" ? <span className="ts-pill">생성중...</span> : null}
+                </div>
               </div>
 
               <div className="mt-3">
                 {neutralStatus === "error" && neutralError ? (
-                  <div
-                    className="ts-pill"
-                    style={{ borderColor: "rgba(255,77,109,.35)", color: "rgba(255,122,144,.95)" }}
-                  >
+                  <div className="ts-pill" style={{ borderColor: "rgba(255,77,109,.35)", color: "rgba(255,122,144,.95)" }}>
                     {neutralError}
                   </div>
                 ) : null}
               </div>
 
-              <div className="mt-4">{neutralAudio ? <audio controls src={neutralAudio} className="w-full" /> : <div className="ts-pill">-</div>}</div>
+              <div className="mt-3">
+                {neutralAudio ? <audio controls src={neutralAudio} className="w-full" /> : <div className="ts-pill">-</div>}
+              </div>
             </section>
 
-            <section className="ts-card p-4 sm:p-5">
-              {/* Warm 섹션은 기존 그대로 */}
+            <section className="ts-card p-3 sm:p-4 min-w-0">
               <div className="ts-h">
-                <div>
+                <div className="min-w-0">
                   <div className="ts-hTitle">
-                    <span aria-hidden="true">🧑‍💼</span> <span className="hidden sm:inline">상담사 → 공감 톤</span>
+                    <span aria-hidden="true">🧑‍💼</span> <span className="hidden sm:inline">나의목소리</span>
                   </div>
-                  <div className="ts-hSub hidden sm:block">Warm Voice 사용</div>
                 </div>
                 <span className="ts-pill" title="Warm">
                   <span aria-hidden="true">🫂</span>
-                  <span className="hidden sm:inline ml-2">Warm</span>
+                  <span className="hidden sm:inline ml-2">따뜻한버전</span>
                 </span>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <textarea
                   className="ts-input ts-textarea"
+                  rows={4}
                   value={agentText}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAgentText(e.target.value)}
                 />
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <button
-                  className="ts-btn ts-btn-accent"
-                  onClick={() => void generateWarm()}
-                  disabled={warmStatus === "loading" || !warmVoiceId}
-                  aria-label="공감 생성"
-                  title="공감 생성"
-                >
-                  {warmStatus === "loading" ? <span className="ts-spinner" /> : <span aria-hidden="true">🫂</span>}
-                  <span className="hidden sm:inline"> 공감 생성</span>
-                </button>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 items-end">
+                <div className="min-w-0">
+                  <div className="mb-1 text-xs" style={{ color: "var(--muted)" }}>
+                    <span aria-hidden="true">🫂</span>
+                    <span className="hidden sm:inline ml-1">Warm voice</span>
+                  </div>
+                  <VoicePicker voices={voices} value={warmVoiceId} onChange={setWarmVoiceId} placeholder="Warm Voice" />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                  <button
+                    className="ts-btn ts-btn-accent"
+                    onClick={() => void generateWarm()}
+                    disabled={warmStatus === "loading" || !warmVoiceId}
+                    aria-label="공감 생성"
+                    title="공감 생성"
+                  >
+                    {warmStatus === "loading" ? <span className="ts-spinner" /> : <span aria-hidden="true">🫂</span>}
+                    <span className="hidden sm:inline"> 공감 생성</span>
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3">
@@ -1354,7 +1400,9 @@ export default function App() {
                 ) : null}
               </div>
 
-              <div className="mt-4">{warmAudio ? <audio controls src={warmAudio} className="w-full" /> : <div className="ts-pill">-</div>}</div>
+              <div className="mt-3">
+                {warmAudio ? <audio controls src={warmAudio} className="w-full" /> : <div className="ts-pill">-</div>}
+              </div>
             </section>
           </div>
         )}
@@ -1367,7 +1415,11 @@ function Switch(props: { checked: boolean; onChange: (v: boolean) => void; label
   const { checked, onChange, label } = props;
   return (
     <label className="ts-switch" title={label} aria-label={label}>
-      <input type="checkbox" checked={checked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.checked)} />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.checked)}
+      />
       <span className="ts-switchTrack">
         <span className="ts-switchThumb" />
       </span>
@@ -1379,20 +1431,39 @@ function Switch(props: { checked: boolean; onChange: (v: boolean) => void; label
   );
 }
 
-function RangeRow(props: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
-  const { label, value, min, max, step, onChange } = props;
+function MiniSlider(props: {
+  icon: string;
+  label: "Pace" | "Pitch";
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
+  const { icon, label, value, min, max, step, onChange } = props;
 
   return (
-    <div className="ts-rangeWrap">
-      <div className="ts-rangeTop">
-        <div className="ts-rangeLabel">
-          <span aria-hidden="true">{label === "Pace" ? "⚡" : "🎚️"}</span>
-          <span className="hidden sm:inline ml-2">{label}</span>
+    <div
+      className="rounded-2xl px-3 py-2"
+      style={{
+        border: "1px solid rgba(255,255,255,.10)",
+        background: "rgba(255,255,255,.04)",
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span aria-hidden="true">{icon}</span>
+          <span className="text-sm" style={{ color: "rgba(244,245,248,.88)" }}>
+            {label}
+          </span>
         </div>
-        <span className="ts-pill ts-rangeValue">{value.toFixed(2)}</span>
+        <span className="ts-pill" style={{ paddingInline: 10, paddingBlock: 2 }}>
+          {value.toFixed(2)}
+        </span>
       </div>
+
       <input
-        className="ts-range"
+        className="ts-range mt-2"
         type="range"
         min={min}
         max={max}

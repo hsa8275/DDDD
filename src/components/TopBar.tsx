@@ -17,7 +17,7 @@ export default function TopBar({ status, tagline }: Props) {
             🎧
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-extrabold tracking-tight text-zinc-100">ToneShift</div>
+            <div className="text-sm font-extrabold tracking-tight text-zinc-100">뚝딱뚝딱</div>
             <div className="text-[11px] text-zinc-400">Agent Console</div>
           </div>
         </div>
