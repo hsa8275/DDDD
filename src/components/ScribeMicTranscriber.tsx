@@ -9,8 +9,6 @@ type Props = {
   onFinalText?: (text: string) => void;
 };
 
-type TokenResponse = { token: string };
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
