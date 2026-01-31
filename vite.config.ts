@@ -2,150 +2,139 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
+import type { IncomingMessage, ServerResponse } from "http";
 
-function readBody(req: any) {
+type Next = (err?: unknown) => void;
+
+function readBody(req: IncomingMessage): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    let data = "";
-    req.on("data", (chunk: any) => (data += chunk));
+    let data: string = "";
+    req.on("data", (chunk: Buffer) => (data += chunk.toString("utf-8")));
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });
 }
 
-// ✅ multipart 업로드(IVC)는 req 스트림 그대로 upstream으로 전달해야 함
-async function proxyStreamToElevenLabs(req: any, res: any, apiKey: string, url: string) {
-  const headers: Record<string, string> = {
-    "xi-api-key": apiKey,
-  };
-
-  const ct = req.headers["content-type"];
-  if (ct) headers["content-type"] = String(ct);
-
-  const cl = req.headers["content-length"];
-  if (cl) headers["content-length"] = String(cl);
-
-  const r = await fetch(url, {
-    method: "POST",
-    headers,
-    // Node fetch에 stream body 전달 시 필요
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: req as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    duplex: "half" as any,
-  } as any);
-
-  const txt = await r.text();
-  res.statusCode = r.status;
-  res.setHeader("Content-Type", r.headers.get("content-type") || "application/json");
-  res.end(txt);
+function json(res: ServerResponse, statusCode: number, payload: unknown): void {
+  res.statusCode = statusCode;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(payload));
 }
 
 function elevenLabsDevMiddleware(apiKey: string | undefined): Plugin {
   return {
     name: "elevenlabs-dev-middleware",
     configureServer(server) {
-      // ✅ POST /api/eleven/voices/add -> https://api.elevenlabs.io/v1/voices/add (Instant Voice Cloning)
-      server.middlewares.use("/api/eleven/voices/add", async (req, res) => {
+      // ✅ 1) /api/eleven/voices/add 를 /api/eleven/voices 보다 먼저 등록 (prefix 충돌 방지)
+      server.middlewares.use("/api/eleven/voices/add", async (req: IncomingMessage, res: ServerResponse) => {
         try {
-          if (!apiKey) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Missing ELEVENLABS_API_KEY in .env.local" }));
-            return;
-          }
+          if (!apiKey) return json(res, 500, { error: "Missing ELEVENLABS_API_KEY in .env.local" });
 
-          const m = (req.method || "POST").toUpperCase();
-          if (m === "OPTIONS") {
+          const method: string = String(req.method ?? "GET").toUpperCase();
+
+          if (method === "OPTIONS") {
             res.statusCode = 204;
+            res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+            res.setHeader("Access-Control-Allow-Headers", "content-type");
             res.end();
             return;
           }
-          if (m !== "POST") {
+
+          if (method !== "POST") {
             res.statusCode = 405;
             res.end("Method Not Allowed");
             return;
           }
 
-          await proxyStreamToElevenLabs(req, res, apiKey, "https://api.elevenlabs.io/v1/voices/add");
-        } catch (e: any) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: String(e) }));
+          const ctHeader: unknown = req.headers["content-type"];
+          const contentType: string = typeof ctHeader === "string" ? ctHeader : "";
+          if (!contentType.includes("multipart/form-data")) {
+            res.statusCode = 400;
+            res.end("Content-Type must be multipart/form-data");
+            return;
+          }
+
+          const upstream: Response = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+            method: "POST",
+            headers: {
+              "xi-api-key": apiKey,
+              "content-type": contentType,
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            body: req as unknown as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            duplex: "half" as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any);
+
+          const ab: ArrayBuffer = await upstream.arrayBuffer();
+          res.statusCode = upstream.status;
+          res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json; charset=utf-8");
+          res.end(Buffer.from(ab));
+        } catch (e: unknown) {
+          return json(res, 500, { error: String(e) });
         }
       });
 
-      // GET /api/eleven/voices  ->  https://api.elevenlabs.io/v1/voices
-      server.middlewares.use("/api/eleven/voices", async (req, res) => {
+      // ✅ 2) /api/eleven/voices 는 서브패스면 next()로 넘기기 (예: /add)
+      server.middlewares.use("/api/eleven/voices", async (req: IncomingMessage, res: ServerResponse, next: Next) => {
         try {
-          if (!apiKey) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Missing ELEVENLABS_API_KEY in .env.local" }));
+          const restPath: string = typeof req.url === "string" ? req.url : "";
+          if (restPath && restPath !== "/" && restPath !== "") {
+            next();
             return;
           }
-          if ((req.method || "GET").toUpperCase() !== "GET") {
+
+          if (!apiKey) return json(res, 500, { error: "Missing ELEVENLABS_API_KEY in .env.local" });
+
+          const method: string = String(req.method ?? "GET").toUpperCase();
+          if (method !== "GET") {
             res.statusCode = 405;
             res.end("Method Not Allowed");
             return;
           }
 
-          const r = await fetch("https://api.elevenlabs.io/v1/voices", {
+          const r: Response = await fetch("https://api.elevenlabs.io/v1/voices", {
             headers: { "xi-api-key": apiKey },
           });
 
-          const text = await r.text();
+          const text: string = await r.text();
           res.statusCode = r.status;
-          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json");
+          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json; charset=utf-8");
           res.end(text);
-        } catch (e: any) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: String(e) }));
+        } catch (e: unknown) {
+          return json(res, 500, { error: String(e) });
         }
       });
 
-      // POST /api/eleven/tts  ->  https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=...
-      server.middlewares.use("/api/eleven/tts", async (req, res) => {
+      // POST /api/eleven/tts
+      server.middlewares.use("/api/eleven/tts", async (req: IncomingMessage, res: ServerResponse) => {
         try {
-          if (!apiKey) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Missing ELEVENLABS_API_KEY in .env.local" }));
-            return;
-          }
-          if ((req.method || "POST").toUpperCase() !== "POST") {
+          if (!apiKey) return json(res, 500, { error: "Missing ELEVENLABS_API_KEY in .env.local" });
+          if (String(req.method ?? "POST").toUpperCase() !== "POST") {
             res.statusCode = 405;
             res.end("Method Not Allowed");
             return;
           }
 
-          const body = await readBody(req);
-          const parsed = JSON.parse(body || "{}");
-          const text: string = String(parsed.text ?? "").trim();
-          const voiceId: string = String(parsed.voiceId ?? "").trim();
+          const body: string = await readBody(req);
+          const parsed: unknown = JSON.parse(body || "{}");
+          const rec: Record<string, unknown> = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
 
-          const modelId: string = String(parsed.modelId ?? "eleven_turbo_v2_5");
-          const outputFormat: string = String(parsed.outputFormat ?? "mp3_44100_128");
-          const voiceSettings = parsed.voiceSettings ?? undefined;
+          const text: string = String(rec.text ?? "").trim();
+          const voiceId: string = String(rec.voiceId ?? "").trim();
+          const modelId: string = String(rec.modelId ?? "eleven_turbo_v2_5");
+          const outputFormat: string = String(rec.outputFormat ?? "mp3_44100_128");
+          const voiceSettings: unknown = rec.voiceSettings ?? undefined;
 
-          if (!text) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "text is required" }));
-            return;
-          }
-          if (!voiceId) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "voiceId is required" }));
-            return;
-          }
+          if (!text) return json(res, 400, { error: "text is required" });
+          if (!voiceId) return json(res, 400, { error: "voiceId is required" });
 
-          const url =
+          const url: string =
             `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}` +
             `?output_format=${encodeURIComponent(outputFormat)}`;
 
-          const r = await fetch(url, {
+          const r: Response = await fetch(url, {
             method: "POST",
             headers: {
               "xi-api-key": apiKey,
@@ -159,65 +148,50 @@ function elevenLabsDevMiddleware(apiKey: string | undefined): Plugin {
           });
 
           if (!r.ok) {
-            const errText = await r.text().catch(() => "");
-            res.statusCode = r.status;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "ElevenLabs TTS failed", details: errText }));
-            return;
+            const errText: string = await r.text().catch(() => "");
+            return json(res, r.status, { error: "ElevenLabs TTS failed", details: errText });
           }
 
-          const ab = await r.arrayBuffer();
+          const ab: ArrayBuffer = await r.arrayBuffer();
           res.statusCode = 200;
           res.setHeader("Content-Type", r.headers.get("content-type") || "audio/mpeg");
           res.end(Buffer.from(ab));
-        } catch (e: any) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: String(e) }));
+        } catch (e: unknown) {
+          return json(res, 500, { error: String(e) });
         }
       });
 
-      // ✅ POST /api/eleven/voice-design/previews -> /v1/text-to-voice/create-previews?output_format=...
-      server.middlewares.use("/api/eleven/voice-design/previews", async (req, res) => {
+      // POST /api/eleven/voice-design/previews
+      server.middlewares.use("/api/eleven/voice-design/previews", async (req: IncomingMessage, res: ServerResponse) => {
         try {
-          if (!apiKey) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Missing ELEVENLABS_API_KEY in .env.local" }));
-            return;
-          }
-          if ((req.method || "POST").toUpperCase() !== "POST") {
+          if (!apiKey) return json(res, 500, { error: "Missing ELEVENLABS_API_KEY in .env.local" });
+          if (String(req.method ?? "POST").toUpperCase() !== "POST") {
             res.statusCode = 405;
             res.end("Method Not Allowed");
             return;
           }
 
-          const body = await readBody(req);
-          const parsed = JSON.parse(body || "{}");
+          const body: string = await readBody(req);
+          const parsed: unknown = JSON.parse(body || "{}");
+          const rec: Record<string, unknown> = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
 
-          const voiceDescription: string = String(parsed.voiceDescription ?? "").trim();
-          const text: string | undefined = parsed.text ? String(parsed.text) : undefined;
-          const autoGenerateText: boolean = !!parsed.autoGenerateText;
+          const voiceDescription: string = String(rec.voiceDescription ?? "").trim();
+          const text: string | undefined = rec.text ? String(rec.text) : undefined;
+          const autoGenerateText: boolean = Boolean(rec.autoGenerateText);
 
-          const outputFormat: string = String(parsed.outputFormat ?? "mp3_44100_192");
-          const loudness: number | undefined = typeof parsed.loudness === "number" ? parsed.loudness : undefined;
-          const quality: number | undefined = typeof parsed.quality === "number" ? parsed.quality : undefined;
-          const seed: number | undefined = typeof parsed.seed === "number" ? parsed.seed : undefined;
-          const guidanceScale: number | undefined =
-            typeof parsed.guidanceScale === "number" ? parsed.guidanceScale : undefined;
+          const outputFormat: string = String(rec.outputFormat ?? "mp3_44100_192");
+          const loudness: number | undefined = typeof rec.loudness === "number" ? rec.loudness : undefined;
+          const quality: number | undefined = typeof rec.quality === "number" ? rec.quality : undefined;
+          const seed: number | undefined = typeof rec.seed === "number" ? rec.seed : undefined;
+          const guidanceScale: number | undefined = typeof rec.guidanceScale === "number" ? rec.guidanceScale : undefined;
 
-          if (!voiceDescription) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "voiceDescription is required" }));
-            return;
-          }
+          if (!voiceDescription) return json(res, 400, { error: "voiceDescription is required" });
 
-          const url =
+          const url: string =
             `https://api.elevenlabs.io/v1/text-to-voice/create-previews` +
             `?output_format=${encodeURIComponent(outputFormat)}`;
 
-          const r = await fetch(url, {
+          const r: Response = await fetch(url, {
             method: "POST",
             headers: {
               "xi-api-key": apiKey,
@@ -233,59 +207,38 @@ function elevenLabsDevMiddleware(apiKey: string | undefined): Plugin {
             }),
           });
 
-          const txt = await r.text();
+          const txt: string = await r.text();
           res.statusCode = r.status;
-          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json");
+          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json; charset=utf-8");
           res.end(txt);
-        } catch (e: any) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: String(e) }));
+        } catch (e: unknown) {
+          return json(res, 500, { error: String(e) });
         }
       });
 
-      // ✅ POST /api/eleven/voice-design/create -> /v1/text-to-voice
-      server.middlewares.use("/api/eleven/voice-design/create", async (req, res) => {
+      // POST /api/eleven/voice-design/create
+      server.middlewares.use("/api/eleven/voice-design/create", async (req: IncomingMessage, res: ServerResponse) => {
         try {
-          if (!apiKey) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Missing ELEVENLABS_API_KEY in .env.local" }));
-            return;
-          }
-          if ((req.method || "POST").toUpperCase() !== "POST") {
+          if (!apiKey) return json(res, 500, { error: "Missing ELEVENLABS_API_KEY in .env.local" });
+          if (String(req.method ?? "POST").toUpperCase() !== "POST") {
             res.statusCode = 405;
             res.end("Method Not Allowed");
             return;
           }
 
-          const body = await readBody(req);
-          const parsed = JSON.parse(body || "{}");
+          const body: string = await readBody(req);
+          const parsed: unknown = JSON.parse(body || "{}");
+          const rec: Record<string, unknown> = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
 
-          const voiceName: string = String(parsed.voiceName ?? "").trim();
-          const voiceDescription: string = String(parsed.voiceDescription ?? "").trim();
-          const generatedVoiceId: string = String(parsed.generatedVoiceId ?? "").trim();
+          const voiceName: string = String(rec.voiceName ?? "").trim();
+          const voiceDescription: string = String(rec.voiceDescription ?? "").trim();
+          const generatedVoiceId: string = String(rec.generatedVoiceId ?? "").trim();
 
-          if (!voiceName) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "voiceName is required" }));
-            return;
-          }
-          if (!voiceDescription) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "voiceDescription is required" }));
-            return;
-          }
-          if (!generatedVoiceId) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "generatedVoiceId is required" }));
-            return;
-          }
+          if (!voiceName) return json(res, 400, { error: "voiceName is required" });
+          if (!voiceDescription) return json(res, 400, { error: "voiceDescription is required" });
+          if (!generatedVoiceId) return json(res, 400, { error: "generatedVoiceId is required" });
 
-          const r = await fetch("https://api.elevenlabs.io/v1/text-to-voice", {
+          const r: Response = await fetch("https://api.elevenlabs.io/v1/text-to-voice", {
             method: "POST",
             headers: {
               "xi-api-key": apiKey,
@@ -295,21 +248,48 @@ function elevenLabsDevMiddleware(apiKey: string | undefined): Plugin {
               voice_name: voiceName,
               voice_description: voiceDescription,
               generated_voice_id: generatedVoiceId,
-              ...(parsed.labels ? { labels: parsed.labels } : null),
-              ...(parsed.playedNotSelectedVoiceIds
-                ? { played_not_selected_voice_ids: parsed.playedNotSelectedVoiceIds }
-                : null),
+              ...(rec.labels ? { labels: rec.labels } : null),
+              ...(rec.playedNotSelectedVoiceIds ? { played_not_selected_voice_ids: rec.playedNotSelectedVoiceIds } : null),
             }),
           });
 
-          const txt = await r.text();
+          const txt: string = await r.text();
           res.statusCode = r.status;
-          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json");
+          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json; charset=utf-8");
           res.end(txt);
-        } catch (e: any) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: String(e) }));
+        } catch (e: unknown) {
+          return json(res, 500, { error: String(e) });
+        }
+      });
+
+      // POST /api/ai/transform
+      server.middlewares.use("/api/ai/transform", async (req: IncomingMessage, res: ServerResponse) => {
+        try {
+          if (String(req.method ?? "POST").toUpperCase() !== "POST") {
+            res.statusCode = 405;
+            res.end("Method Not Allowed");
+            return;
+          }
+
+          const body: string = await readBody(req);
+          const parsed: unknown = JSON.parse(body || "{}");
+          const rec: Record<string, unknown> = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+
+          const message: string = String(rec.message ?? "").trim();
+          if (!message) return json(res, 400, { error: "message is required" });
+
+          const r: Response = await fetch("http://34.64.208.249:80/ai/transform", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+          });
+
+          const txt: string = await r.text();
+          res.statusCode = r.status;
+          res.setHeader("Content-Type", r.headers.get("content-type") || "application/json; charset=utf-8");
+          res.end(txt);
+        } catch (e: unknown) {
+          return json(res, 500, { error: String(e) });
         }
       });
     },
@@ -317,8 +297,8 @@ function elevenLabsDevMiddleware(apiKey: string | undefined): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
-  const apiKey = env.ELEVENLABS_API_KEY;
+  const env: Record<string, string> = loadEnv(mode, process.cwd(), "");
+  const apiKey: string | undefined = env.ELEVENLABS_API_KEY || env.XI_API_KEY;
 
   return {
     plugins: [react(), tailwindcss(), elevenLabsDevMiddleware(apiKey)],
