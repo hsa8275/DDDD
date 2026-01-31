@@ -527,3 +527,219 @@ body{
   font-size: 11px;
   color: var(--muted);
 }
+
+/* =========================================================
+   ToneShift UI Simplify Override (append at bottom)
+   목적: 더 단순 + 더 직관 + 정보정렬 개선
+   ========================================================= */
+
+/* 0) 전체 레이아웃 기본 폭/여백 규격화 */
+.ts-shell{
+  min-height:100vh;
+}
+
+.ts-wrap{
+  width:100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 16px;
+}
+
+/* 1) 헤더를 sticky로 쓰되, 더 얇게/단정하게 */
+.ts-top{
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(7,7,11,.72);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+/* 2) 헤더 내부: 2줄 정렬 */
+.ts-topRow{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+}
+
+/* 로고 박스는 작고 단정 */
+.ts-logo{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: none;
+}
+
+/* 타이틀/서브 문구도 작게 */
+.ts-title{
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.ts-sub{
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* 상태/모드 칩: 더 미니멀 */
+.ts-state,
+.ts-chip{
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.10);
+  padding: 6px 10px;
+}
+
+/* 3) Voice 영역: 2열 그리드 고정 + 간격 정돈 */
+.ts-voiceGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-width: min(560px, 100%);
+}
+@media (max-width: 980px){
+  .ts-voiceGrid{ grid-template-columns: 1fr; }
+}
+
+/* 4) 버튼 줄: 크기/우선순위 정리 */
+.ts-btnRow{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Accent 버튼만 살리고 나머지는 단정하게 */
+.ts-btn{
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+.ts-btn-ghost{
+  background: rgba(255,255,255,.02);
+}
+
+/* 5) 탭: 기존 .ts-tabs 기반이 있어도, 더 단순한 segmented 느낌으로 */
+.ts-tabsBar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding-top: 2px;
+  padding-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.ts-tabsSimple{
+  display:inline-flex;
+  gap: 0;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+}
+
+.ts-tabsSimple .ts-tab{
+  border: 0;
+  background: transparent;
+  color: rgba(244,245,248,.70);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.ts-tabsSimple .ts-tab:hover{
+  color: rgba(244,245,248,.92);
+  background: rgba(255,255,255,.04);
+}
+.ts-tabsSimple .ts-tabActive{
+  background: rgba(255,77,109,.14);
+  color: rgba(244,245,248,.95);
+  box-shadow: none;
+}
+
+/* 6) 카드: “유리감” 줄이고, 내용 정렬 강화 */
+.ts-card{
+  box-shadow: none; /* 기존 shadow 제거 */
+  background: rgba(255,255,255,.035); /* 단순 배경 */
+  border: 1px solid rgba(255,255,255,.10);
+  backdrop-filter: blur(8px);
+}
+
+/* Hero 카드도 과한 테두리 줄이기 (원하면 더 강하게 줄일 수 있음) */
+.ts-cardHero{
+  box-shadow: none;
+  background: rgba(255,255,255,.035);
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+/* 7) 메인 2열 그리드: 간격만 정돈 */
+.ts-grid2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 980px){
+  .ts-grid2{ grid-template-columns: 1fr; }
+}
+
+/* 8) 카드 헤더: 제목/설명/뱃지 정렬을 확실히 */
+.ts-cardHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.ts-cardTitle{
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.ts-cardSub{
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 9) 입력/텍스트영역: 더 평평하고 읽기 좋게 */
+.ts-input{
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.10);
+}
+.ts-input:focus{
+  border-color: rgba(255,77,109,.45);
+  box-shadow: 0 0 0 3px rgba(255,77,109,.12);
+}
+
+.ts-textarea{
+  min-height: 128px;
+}
+
+/* 10) 오디오 박스도 단순화 */
+.ts-audioBox{
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.10);
+}
+.ts-audioTitle{
+  color: rgba(244,245,248,.88);
+}
+
+/* 11) 에러: 더 단정한 배지 */
+.ts-pillErr{
+  border-color: rgba(255,77,109,.45) !important;
+  color: rgba(255,160,176,.95) !important;
+  background: rgba(255,77,109,.08) !important;
+}
+
+/* 12) 작은 정돈: 섹션 내 row 간격 */
+.ts-row{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ts-spacer{ flex:1; }
