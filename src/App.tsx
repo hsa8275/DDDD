@@ -5,6 +5,7 @@ import { listVoices, tts, type ElevenVoice, type TonePreset } from "./lib/eleven
 import { VoicePicker } from "./components/VoicePicker";
 import { VoiceDesignPage } from "./pages/VoiceDesignPage";
 import { VoiceClonePage } from "./pages/VoiceClonePage";
+import { ScribeMicTranscriber } from "./components/ScribeMicTranscriber";
 
 type Status = "idle" | "loading" | "ok" | "error";
 type View = "console" | "voiceDesign" | "voiceClone" | "product";
@@ -390,6 +391,10 @@ function IconText(props: { icon: string; text: string; hideTextOnMobile?: boolea
   );
 }
 
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
 export default function App() {
   const [view, setView] = useState<View>("console");
 
@@ -422,6 +427,9 @@ export default function App() {
   const [warmError, setWarmError] = useState<string>("");
   const [voiceLabError, setVoiceLabError] = useState<string>("");
 
+  const [sttRecording, setSttRecording] = useState<boolean>(false);
+  const micTsRef = useRef<string>("");
+
   const status = useMemo<Status>(() => mergeStatus(neutralStatus, warmStatus, voiceLabStatus), [
     neutralStatus,
     warmStatus,
@@ -434,7 +442,6 @@ export default function App() {
     voiceLabError,
   ]);
 
-  const [pulling, setPulling] = useState<boolean>(false);
   const [autoPull, setAutoPull] = useState<boolean>(false);
   const [autoNeutral, setAutoNeutral] = useState<boolean>(false);
 
@@ -557,22 +564,6 @@ export default function App() {
       ac.abort();
     };
   }, [autoPull]);
-
-  async function pullCustomerText(): Promise<CustomerUtterance | null> {
-    setPulling(true);
-    setNeutralError("");
-    try {
-      const data: CustomerUtterance = await fetchLatestCustomerUtterance();
-      setCustomer(data);
-      return data;
-    } catch (e: unknown) {
-      setNeutralError(String(e));
-      setNeutralStatus("error");
-      return null;
-    } finally {
-      setPulling(false);
-    }
-  }
 
   function ttsSpeedFor(preset: TonePreset): number {
     const base: number = PRESET_BASE_SPEED[preset] ?? 1.0;
@@ -725,7 +716,7 @@ export default function App() {
           ts: prev.ts,
         }));
 
-        const key: string = `swear::${Date.now()}::${raw}`;
+        const key: string = `swear::${nowIso()}::${raw}`;
         if (key === lastNeutralKeyRef.current) {
           await sleep(120, signal);
           continue;
@@ -841,6 +832,7 @@ export default function App() {
 
   useEffect(() => {
     if (!autoNeutral) return;
+    if (sttRecording) return;
 
     const text: string = String(customer.text ?? "").trim();
     if (!neutralVoiceId || !text || text.length < 2) return;
@@ -858,7 +850,7 @@ export default function App() {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customer.text, customer.id, customer.ts, neutralVoiceId, autoNeutral]);
+  }, [customer.text, customer.id, customer.ts, neutralVoiceId, autoNeutral, sttRecording]);
 
   const confPct: number = typeof neutralConfidenceValue === "number" ? neutralConfidenceValue : 0;
 
@@ -893,6 +885,13 @@ export default function App() {
                       <span className={dotClass(status)} />
                       <span className="hidden sm:inline ml-2">{status === "loading" ? "generating" : status}</span>
                     </span>
+
+                    {sttRecording ? (
+                      <span className="ts-pill" title="STT listening">
+                        <span aria-hidden="true">🎙️</span>
+                        <span className="hidden sm:inline ml-2">listening</span>
+                      </span>
+                    ) : null}
 
                     <span className="ts-pill" title={neutralEmotion ? `감정: ${neutralEmotion}` : "감정: -"}>
                       <span aria-hidden="true">😶</span>
@@ -1111,7 +1110,7 @@ export default function App() {
                   <div className="ts-hTitle">
                     <span aria-hidden="true">🧪</span> <span className="hidden sm:inline">시제품</span>
                   </div>
-                  <div className="ts-hSub hidden sm:block">시작/종료 + Neutral Voice + 감정/신뢰도</div>
+                  <div className="ts-hSub hidden sm:block">STT → transform → Neutral TTS</div>
                 </div>
                 <span className="ts-pill" title="status" style={productTheme.pillStyle}>
                   <span className={dotClass(status)} /> <span className="hidden sm:inline ml-2">{status}</span>
@@ -1125,11 +1124,57 @@ export default function App() {
                     <span className="hidden sm:inline ml-2">{productTheme.label}</span>
                   </span>
 
-                  <span className="ts-pill" style={productTheme.pillStyle} title={neutralConfidenceRaw ? `신뢰도: ${neutralConfidenceRaw}` : "신뢰도: -"}>
+                  <span
+                    className="ts-pill"
+                    style={productTheme.pillStyle}
+                    title={neutralConfidenceRaw ? `신뢰도: ${neutralConfidenceRaw}` : "신뢰도: -"}
+                  >
                     <span aria-hidden="true">🎯</span>
                     <span className="hidden sm:inline ml-2">{neutralConfidenceRaw ? neutralConfidenceRaw : "-"}</span>
                   </span>
                 </div>
+
+                <ScribeMicTranscriber
+                  disabled={!neutralVoiceId}
+                  buttonClassName="ts-btn ts-btn-accent"
+                  onRecordingChange={(isRec: boolean) => {
+                    setSttRecording(isRec);
+
+                    if (isRec) {
+                      stopLoop(swearLoopRef.current);
+                      setAutoPull(false);
+                      setAutoNeutral(false);
+
+                      neutralReqIdRef.current += 1;
+                      warmReqIdRef.current += 1;
+                      stopAudio(neutralPlayerRef.current);
+                      stopAudio(warmPlayerRef.current);
+
+                      micTsRef.current = nowIso();
+                      setCustomer({ text: "", id: "mic", ts: micTsRef.current });
+                      resetNeutralMeta();
+                      setNeutralError("");
+                    }
+                  }}
+                  onLiveText={(text: string) => {
+                    setCustomer((prev: CustomerUtterance) => ({
+                      ...prev,
+                      text,
+                      id: "mic",
+                      ts: micTsRef.current || prev.ts,
+                    }));
+                  }}
+                  onFinalText={(text: string) => {
+                    const finalText: string = String(text ?? "").trim();
+                    if (!finalText) return;
+
+                    const ts: string = micTsRef.current || nowIso();
+                    const key: string = `mic::${ts}::${finalText}`;
+
+                    setCustomer({ text: finalText, id: "mic", ts });
+                    void generateNeutral("manual", finalText, key);
+                  }}
+                />
 
                 {neutralTransformedText ? (
                   <div className="text-sm" style={{ color: "rgba(244,245,248,.92)" }}>
@@ -1148,12 +1193,13 @@ export default function App() {
         ) : (
           <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
             <section className="ts-card p-4 sm:p-5">
+              {/* 이하 콘솔 UI는 기존 그대로 */}
               <div className="ts-h">
                 <div>
                   <div className="ts-hTitle">
                     <span aria-hidden="true">😡</span> <span className="hidden sm:inline">고객 → 순화 → 중화</span>
                   </div>
-                  <div className="ts-hSub hidden sm:block">Neutral Voice 사용</div>
+                  <div className="ts-hSub hidden sm:block">STT or 입력 → Neutral Voice</div>
                 </div>
                 <span className="ts-pill" title={neutralEmotion ? `감정: ${neutralEmotion}` : "감정: -"}>
                   <span aria-hidden="true">😶</span>
@@ -1161,35 +1207,49 @@ export default function App() {
                 </span>
               </div>
 
-              <div className="mt-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>
-                    <span aria-hidden="true">🎯</span> <span className="hidden sm:inline">신뢰도</span>
-                  </span>
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>
-                    {neutralConfidenceRaw || (typeof neutralConfidenceValue === "number" ? `${Math.round(confPct)}%` : "-")}
-                  </span>
-                </div>
-                <div
-                  className="mt-2"
-                  style={{
-                    height: 8,
-                    borderRadius: 999,
-                    border: "1px solid rgba(255,255,255,.10)",
-                    background: "rgba(255,255,255,.05)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ width: `${confPct}%`, height: "100%", background: "rgba(255,77,109,.55)" }} />
-                </div>
-              </div>
-
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <button className="ts-btn" onClick={() => void pullCustomerText()} disabled={pulling} aria-label="더미 불러오기" title="더미 불러오기">
-                    <span aria-hidden="true">{pulling ? "" : "⬇️"}</span>
-                    {pulling ? <span className="ts-spinner" /> : <span className="hidden sm:inline"> 더미 불러오기</span>}
-                  </button>
+                  <ScribeMicTranscriber
+                    disabled={!neutralVoiceId}
+                    buttonClassName="ts-btn"
+                    onRecordingChange={(isRec: boolean) => {
+                      setSttRecording(isRec);
+
+                      if (isRec) {
+                        stopLoop(swearLoopRef.current);
+                        setAutoPull(false);
+                        setAutoNeutral(false);
+
+                        neutralReqIdRef.current += 1;
+                        warmReqIdRef.current += 1;
+                        stopAudio(neutralPlayerRef.current);
+                        stopAudio(warmPlayerRef.current);
+
+                        micTsRef.current = nowIso();
+                        setCustomer({ text: "", id: "mic", ts: micTsRef.current });
+                        resetNeutralMeta();
+                        setNeutralError("");
+                      }
+                    }}
+                    onLiveText={(text: string) => {
+                      setCustomer((prev: CustomerUtterance) => ({
+                        ...prev,
+                        text,
+                        id: "mic",
+                        ts: micTsRef.current || prev.ts,
+                      }));
+                    }}
+                    onFinalText={(text: string) => {
+                      const finalText: string = String(text ?? "").trim();
+                      if (!finalText) return;
+
+                      const ts: string = micTsRef.current || nowIso();
+                      const key: string = `mic::${ts}::${finalText}`;
+
+                      setCustomer({ text: finalText, id: "mic", ts });
+                      void generateNeutral("manual", finalText, key);
+                    }}
+                  />
 
                   <Switch checked={autoPull} onChange={setAutoPull} label="3초 자동" />
                   <Switch checked={autoNeutral} onChange={setAutoNeutral} label="자동 음성" />
@@ -1205,7 +1265,9 @@ export default function App() {
                 <textarea
                   className="ts-input ts-textarea"
                   value={customer.text}
-                  onChange={(e) => setCustomer((prev: CustomerUtterance) => ({ ...prev, text: e.target.value }))}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setCustomer((prev: CustomerUtterance) => ({ ...prev, text: e.target.value }))
+                  }
                 />
               </div>
 
@@ -1236,7 +1298,10 @@ export default function App() {
 
               <div className="mt-3">
                 {neutralStatus === "error" && neutralError ? (
-                  <div className="ts-pill" style={{ borderColor: "rgba(255,77,109,.35)", color: "rgba(255,122,144,.95)" }}>
+                  <div
+                    className="ts-pill"
+                    style={{ borderColor: "rgba(255,77,109,.35)", color: "rgba(255,122,144,.95)" }}
+                  >
                     {neutralError}
                   </div>
                 ) : null}
@@ -1246,6 +1311,7 @@ export default function App() {
             </section>
 
             <section className="ts-card p-4 sm:p-5">
+              {/* Warm 섹션은 기존 그대로 */}
               <div className="ts-h">
                 <div>
                   <div className="ts-hTitle">
@@ -1260,7 +1326,11 @@ export default function App() {
               </div>
 
               <div className="mt-4">
-                <textarea className="ts-input ts-textarea" value={agentText} onChange={(e) => setAgentText(e.target.value)} />
+                <textarea
+                  className="ts-input ts-textarea"
+                  value={agentText}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAgentText(e.target.value)}
+                />
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1297,7 +1367,7 @@ function Switch(props: { checked: boolean; onChange: (v: boolean) => void; label
   const { checked, onChange, label } = props;
   return (
     <label className="ts-switch" title={label} aria-label={label}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.checked)} />
       <span className="ts-switchTrack">
         <span className="ts-switchThumb" />
       </span>
@@ -1321,7 +1391,15 @@ function RangeRow(props: { label: string; value: number; min: number; max: numbe
         </div>
         <span className="ts-pill ts-rangeValue">{value.toFixed(2)}</span>
       </div>
-      <input className="ts-range" type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input
+        className="ts-range"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(Number(e.target.value))}
+      />
     </div>
   );
 }
